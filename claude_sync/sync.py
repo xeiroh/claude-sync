@@ -309,7 +309,9 @@ class SyncManager:
         username: str,
         key_file: Optional[str] = None
     ) -> paramiko.SSHClient:
-        """Create SSH connection"""
+        """Create SSH connection with support for encrypted keys"""
+        import getpass
+
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
@@ -325,11 +327,45 @@ class SyncManager:
             key_path = Path(key_file).expanduser()
             if not key_path.exists():
                 raise FileNotFoundError(f"SSH key not found: {key_file}")
-            connect_kwargs['key_filename'] = str(key_path)
+
+            # Try to load the key first to check if it's encrypted
+            passphrase = None
+            key_obj = None
+
+            # Try different key types
+            for key_class in [paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey]:
+                try:
+                    # Try loading without passphrase first
+                    key_obj = key_class.from_private_key_file(str(key_path))
+                    break
+                except paramiko.PasswordRequiredException:
+                    # Key is encrypted, prompt for password
+                    if passphrase is None:
+                        passphrase = getpass.getpass(f"Enter passphrase for {key_file}: ")
+                    try:
+                        key_obj = key_class.from_private_key_file(str(key_path), password=passphrase)
+                        break
+                    except paramiko.SSHException:
+                        # Wrong passphrase or not this key type, try next type
+                        continue
+                except paramiko.SSHException:
+                    # Not this key type, try next
+                    continue
+
+            if key_obj:
+                connect_kwargs['pkey'] = key_obj
+            else:
+                # Fallback to key_filename (paramiko will handle it)
+                connect_kwargs['key_filename'] = str(key_path)
 
         # Try to connect using specified key or SSH agent/default keys
         try:
             client.connect(**connect_kwargs)
+        except paramiko.AuthenticationException as e:
+            # If we have a key file but authentication failed, might be wrong passphrase
+            if key_file and 'passphrase' in str(e).lower():
+                raise ConnectionError(f"Authentication failed. Incorrect passphrase for key: {key_file}")
+            raise ConnectionError(f"Authentication failed for {username}@{host}:{port}: {e}")
         except Exception as e:
             raise ConnectionError(f"Failed to connect to {username}@{host}:{port}: {e}")
 

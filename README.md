@@ -98,6 +98,18 @@ claude-sync --ssh-command "ssh -i ~/.ssh/my-key -p 3000 user@example.com"
 claude-sync --ssh-command "ssh -i ~/.ssh/other user@host" --key ~/.ssh/priority
 ```
 
+**Encrypted SSH Keys**:
+- Supports password-protected (encrypted) SSH keys
+- Automatically detects encrypted keys and prompts for passphrase
+- Supports RSA, Ed25519, ECDSA, and DSA key types
+- Passphrase prompt appears interactively when needed
+
+```bash
+# Using encrypted key - will prompt for passphrase
+claude-sync --ssh user@host -i ~/.ssh/encrypted_key
+# Enter passphrase for ~/.ssh/encrypted_key: [prompted securely]
+```
+
 **Authentication Priority**:
 - With `--key` or `-i`: Uses specified key file
 - Without `--key`: Uses SSH agent or default keys (`~/.ssh/id_rsa`, `~/.ssh/id_ed25519`, etc.)
@@ -288,6 +300,7 @@ claude-sync --ssh user@host --verbose
 - Permission denied: Check key permissions (`chmod 600 ~/.ssh/my-key`)
 - Wrong key: Try specifying key explicitly with `--key` or `-i`
 - No SSH agent: Use `--key` to specify key directly instead of relying on agent
+- Encrypted key passphrase: Will prompt interactively; ensure you enter correct passphrase
 
 ### Profile Detection
 
