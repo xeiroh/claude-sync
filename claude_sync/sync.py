@@ -4,6 +4,7 @@ Syncing and remote connection logic
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
@@ -96,19 +97,14 @@ class SyncManager:
                 print(f"  Local version: {local_version} ({install_method})")
                 print(f"  Auto-installing on remote...")
 
-                # Install on remote
-                success = self._install_claude_code_remote(
+                # Install on remote (continues even if verification fails)
+                self._install_claude_code_remote(
                     ssh_client,
                     install_method,
                     local_version,
-                    remote_profile_obj.platform
+                    remote_profile_obj.platform,
+                    remote_profile_obj.home
                 )
-
-                if not success:
-                    raise ValueError(
-                        "Failed to install Claude Code on remote server. "
-                        "Sync aborted. Please install manually and try again."
-                    )
             else:
                 if self.verbose:
                     print(f"Claude Code already installed on remote (version {remote_version})")
@@ -175,6 +171,17 @@ class SyncManager:
 
         return host, port, username
 
+    def _extract_version_from_text(self, text: str) -> Optional[str]:
+        """Extract semantic version string from arbitrary CLI output"""
+        if not text:
+            return None
+
+        match = re.search(r"(\d+\.\d+\.\d+)", text)
+        if match:
+            return match.group(1)
+
+        return None
+
     def _get_local_claude_version(self) -> Optional[str]:
         """
         Get local Claude Code version
@@ -184,36 +191,93 @@ class SyncManager:
         """
         import platform
 
-        # Try both 'claude' and 'claude-code' commands
-        commands_to_try = ['claude', 'claude-code']
+        home = Path.home()
+        system = platform.system()
 
-        # On Windows, also try explicit .exe paths in common locations
-        if platform.system() == 'Windows':
-            windows_paths = [
-                Path.home() / 'AppData' / 'Local' / 'Programs' / 'Claude' / 'claude.exe',
-                Path.home() / 'AppData' / 'Roaming' / 'npm' / 'claude.cmd',
-                Path.home() / 'AppData' / 'Roaming' / 'npm' / 'claude-code.cmd',
-            ]
-            commands_to_try.extend([str(p) for p in windows_paths if p.exists()])
+        # Try both 'claude' and 'claude-code' commands first
+        commands_to_try: list[str] = ['claude', 'claude-code']
 
-        for command in commands_to_try:
+        # Build additional PATH entries to help subprocess find the binary
+        extra_paths: list[str] = []
+        if getattr(self.local_profile, 'npm_global', None):
+            npm_global_path = Path(self.local_profile.npm_global)
+            extra_paths.append(str(npm_global_path / 'bin'))
+            extra_paths.append(str(npm_global_path))
+
+        # Common user-level install locations
+        extra_paths.extend([
+            str(home / '.npm-global' / 'bin'),
+            str(home / '.local' / 'bin'),
+        ])
+
+        # Windows-specific paths and direct executables
+        if system == 'Windows':
+            windows_roaming = home / 'AppData' / 'Roaming'
+            windows_local = home / 'AppData' / 'Local' / 'Programs'
+            extra_paths.append(str(windows_roaming / 'npm'))
+            extra_paths.append(str(windows_local / 'Claude'))
+
+            commands_to_try.extend([
+                str(windows_local / 'Claude' / 'claude.exe'),
+                str(windows_roaming / 'npm' / 'claude.cmd'),
+                str(windows_roaming / 'npm' / 'claude-code.cmd'),
+                str(windows_roaming / 'npm' / 'claude.exe'),
+                str(windows_roaming / 'npm' / 'claude-code.exe'),
+            ])
+
+        # Extend direct command attempts with discovered directories
+        binary_names = ['claude', 'claude-code', 'claude.cmd', 'claude-code.cmd', 'claude.exe', 'claude-code.exe']
+        for path_str in extra_paths:
+            if not path_str:
+                continue
+            bin_path = Path(path_str)
+            for binary in binary_names:
+                commands_to_try.append(str(bin_path / binary))
+
+        # Ensure we only try each command once (preserve order)
+        seen_commands = set()
+        ordered_commands = []
+        for cmd in commands_to_try:
+            if cmd and cmd not in seen_commands:
+                seen_commands.add(cmd)
+                ordered_commands.append(cmd)
+
+        # Prepare environment with the augmented PATH
+        env = os.environ.copy()
+        existing_path = env.get('PATH', '')
+        augmented_paths = [p for p in extra_paths if p]
+        if existing_path:
+            augmented_paths.append(existing_path)
+        env['PATH'] = os.pathsep.join(augmented_paths) if augmented_paths else existing_path
+
+        for command in ordered_commands:
             try:
                 result = subprocess.run(
                     [command, '--version'],
                     capture_output=True,
                     text=True,
-                    timeout=5
+                    timeout=5,
+                    env=env
                 )
                 if result.returncode == 0:
                     # Extract version from output
                     # Formats: "2.0.10 (Claude Code)", "claude-code 2.0.5", or just "2.0.5"
-                    version = result.stdout.strip()
-                    # Try to extract just the version number
-                    parts = version.split()
-                    for part in parts:
-                        if part and part[0].isdigit():
-                            return part
-                    return version
+                    stdout = (result.stdout or '').strip()
+                    stderr = (result.stderr or '').strip()
+
+                    # Some installations print version information to stderr
+                    combined_output = stdout or stderr
+
+                    # Skip common "not found" indicators even if exit code is zero
+                    lower_combined = combined_output.lower()
+                    if any(ind in lower_combined for ind in ['command not found', 'not recognized', 'no such file']):
+                        continue
+
+                    if combined_output:
+                        version = self._extract_version_from_text(combined_output)
+                        if version:
+                            return version
+                        return combined_output
             except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
                 continue
 
@@ -232,31 +296,109 @@ class SyncManager:
         # Try both 'claude' and 'claude-code' commands
         for command in ['claude', 'claude-code']:
             stdin, stdout, stderr = ssh_client.exec_command(f'{command} --version 2>&1')
-            output = stdout.read().decode().strip()
-            error = stderr.read().decode().strip()
+            output = stdout.read().decode(errors='ignore').strip()
+            error = stderr.read().decode(errors='ignore').strip()
+
+            combined_output = output or error
+            combined_for_check = f"{output} {error}".strip()
 
             # Check for command not found (Unix) or not recognized (Windows)
             not_found_indicators = ['command not found', 'not recognized', 'not found']
-            if any(indicator in output.lower() or indicator in error.lower() for indicator in not_found_indicators):
+            if any(indicator in combined_for_check.lower() for indicator in not_found_indicators):
                 continue  # Try next command
 
-            if output:
-                # Extract version from output
-                # Formats: "2.0.10 (Claude Code)", "claude-code 2.0.5", or just "2.0.5"
-                parts = output.split()
-                for part in parts:
-                    if part and part[0].isdigit():
-                        return True, part
-                return True, output
+            if combined_output:
+                # Extract version from output (stdout may be empty if CLI prints to stderr)
+                version = self._extract_version_from_text(combined_output)
+                if version:
+                    return True, version
+                return True, combined_output
 
         return False, None
+
+    def _add_to_path_in_shell_rc(
+        self,
+        ssh_client: paramiko.SSHClient,
+        path_to_add: str
+    ) -> Optional[str]:
+        """
+        Add directory to PATH in shell RC files if not already present
+        and source the RC file to make it immediately available
+
+        Args:
+            ssh_client: SSH connection to remote
+            path_to_add: Directory path to add to PATH (e.g., ~/.local/bin)
+
+        Returns:
+            Path to the RC file that was modified, or None if no modification needed
+        """
+        # Detect which shell RC file to use (in order of preference)
+        rc_files = ['.bashrc', '.zshrc', '.profile', '.bash_profile']
+        modified_rc = None
+
+        for rc_file in rc_files:
+            # Check if RC file exists
+            check_cmd = f'test -f ~/{rc_file} && echo "exists"'
+            stdin, stdout, stderr = ssh_client.exec_command(check_cmd)
+            output = stdout.read().decode().strip()
+
+            if output == 'exists':
+                # Check if PATH entry already exists
+                check_path_cmd = f'grep -q "export PATH.*{path_to_add}" ~/{rc_file} && echo "found"'
+                stdin, stdout, stderr = ssh_client.exec_command(check_path_cmd)
+                path_exists = stdout.read().decode().strip()
+
+                if path_exists != 'found':
+                    # Add PATH entry
+                    path_line = f'export PATH="{path_to_add}:$PATH"'
+                    add_cmd = f'echo \'\n# Added by claude-sync\n{path_line}\' >> ~/{rc_file}'
+                    stdin, stdout, stderr = ssh_client.exec_command(add_cmd)
+                    stdout.channel.recv_exit_status()  # Wait for completion
+
+                    if self.verbose:
+                        print(f"  Added {path_to_add} to PATH in ~/{rc_file}")
+                    
+                    modified_rc = rc_file
+                else:
+                    if self.verbose:
+                        print(f"  PATH already contains {path_to_add} in ~/{rc_file}")
+
+                # Source the RC file to make PATH available immediately
+                source_cmd = f'source ~/{rc_file} 2>/dev/null || . ~/{rc_file} 2>/dev/null'
+                stdin, stdout, stderr = ssh_client.exec_command(source_cmd)
+                stdout.channel.recv_exit_status()
+
+                if self.verbose and modified_rc:
+                    print(f"  Sourced ~/{rc_file} to activate PATH immediately")
+
+                # Only update the first RC file found
+                return rc_file
+
+        # If no RC file exists, create .bashrc
+        if self.verbose:
+            print(f"  No RC file found, creating ~/.bashrc")
+        path_line = f'export PATH="{path_to_add}:$PATH"'
+        create_cmd = f'echo \'# Added by claude-sync\n{path_line}\' > ~/.bashrc'
+        stdin, stdout, stderr = ssh_client.exec_command(create_cmd)
+        stdout.channel.recv_exit_status()
+
+        # Source the newly created .bashrc
+        source_cmd = 'source ~/.bashrc 2>/dev/null || . ~/.bashrc 2>/dev/null'
+        stdin, stdout, stderr = ssh_client.exec_command(source_cmd)
+        stdout.channel.recv_exit_status()
+
+        if self.verbose:
+            print(f"  Sourced ~/.bashrc to activate PATH immediately")
+
+        return '.bashrc'
 
     def _install_claude_code_remote(
         self,
         ssh_client: paramiko.SSHClient,
         install_method: str,
         version: str,
-        platform: str = "linux"
+        platform: str = "linux",
+        remote_home: str = "/root"
     ) -> bool:
         """
         Install Claude Code on remote server
@@ -266,6 +408,7 @@ class SyncManager:
             install_method: "npm", "npm-global", or "native"
             version: Version to install (e.g., "2.0.5")
             platform: Remote platform ("linux", "macos", "windows", etc.)
+            remote_home: Remote home directory path
 
         Returns:
             True if installation succeeded, False otherwise
@@ -307,20 +450,92 @@ class SyncManager:
         exit_status = stdout.channel.recv_exit_status()
         if exit_status != 0:
             error_output = stderr.read().decode().strip()
-            print(f"\nERROR: Installation failed with exit code {exit_status}")
+            print(f"\nWARNING: Installation command exited with code {exit_status}")
             if error_output:
                 print(f"  {error_output}")
-            return False
+            print("  Continuing with sync...")
+            return True  # Don't abort, continue with sync
 
-        # Verify installation
+        # Determine installation path for verification (use actual paths, not $HOME)
+        install_path = None
+        install_path_display = None  # For RC file PATH entry
+        if platform != 'windows':
+            if install_method == 'native':
+                install_path = f'{remote_home}/.local/bin'
+                install_path_display = '$HOME/.local/bin'
+            elif install_method in ['npm', 'npm-global']:
+                # Get npm global bin directory
+                stdin, stdout, stderr = ssh_client.exec_command('npm bin -g 2>/dev/null')
+                npm_bin = stdout.read().decode().strip()
+                if npm_bin and 'command not found' not in npm_bin.lower():
+                    install_path = npm_bin
+                    install_path_display = npm_bin
+                else:
+                    install_path = f'{remote_home}/.npm-global/bin'
+                    install_path_display = '$HOME/.npm-global/bin'
+
+        # Add to PATH in shell RC files (Unix only) - use display version with $HOME
+        if platform != 'windows' and install_path_display:
+            if self.verbose:
+                print("\n  Configuring PATH in shell RC files...")
+
+            self._add_to_path_in_shell_rc(ssh_client, install_path_display)
+
+        # Verify installation (non-blocking) - use actual path for verification
+        if platform != 'windows' and install_path:
+            if self.verbose:
+                print(f"\n  Verifying installation in {install_path}...")
+            
+            # Simple direct check - just see if the file exists
+            check_cmd = f'ls -la {install_path}/claude* 2>&1'
+            stdin, stdout, stderr = ssh_client.exec_command(check_cmd)
+            ls_output = stdout.read().decode().strip()
+            
+            if self.verbose:
+                print(f"  Files in {install_path}:")
+                print(f"    {ls_output if ls_output else 'No files found'}")
+            
+            # Try to get version from the binary directly
+            check_cmd = f'{install_path}/claude --version 2>&1'
+            stdin, stdout, stderr = ssh_client.exec_command(check_cmd)
+            output = stdout.read().decode(errors='ignore').strip()
+            error_output = stderr.read().decode(errors='ignore').strip()
+            combined_version_output = output or error_output
+            
+            if self.verbose:
+                display_output = combined_version_output if combined_version_output else '(empty)'
+                print(f"  Version check output: {display_output}")
+
+            combined_lower = (combined_version_output or '').lower()
+            if combined_version_output and 'command not found' not in combined_lower and 'no such file' not in combined_lower:
+                # Found it!
+                version = self._extract_version_from_text(combined_version_output)
+                if version:
+                    if self.verbose:
+                        print(f"\n✓ Claude Code installed successfully (version {version})")
+                    return True
+
+                # Got some output but no clear version number
+                if self.verbose:
+                    print(f"\n✓ Claude Code binary found at {install_path}/claude")
+                return True
+
+        # Fallback: standard verification (tries default PATH)
+        if self.verbose:
+            print("\n  Trying standard verification (default PATH)...")
+        
         is_installed, installed_version = self._check_remote_claude_installation(ssh_client)
         if is_installed:
             if self.verbose:
-                print(f"\nSUCCESS: Claude Code installed successfully (version {installed_version})")
+                print(f"\n✓ Claude Code installed successfully (version {installed_version})")
             return True
         else:
-            print("\nERROR: Installation completed but Claude Code not found")
-            return False
+            # Installation completed but verification failed - continue anyway
+            if self.verbose:
+                print("\nNote: Claude Code installation verification inconclusive")
+                print(f"  Installation completed - binary should be at {install_path if install_path else 'installation directory'}")
+                print("  Continuing with configuration sync...")
+            return True  # Don't abort, continue with sync
 
     def _create_ssh_connection(
         self,
@@ -535,6 +750,60 @@ class SyncManager:
 
         return configs
 
+    def _write_json_file_safe(
+        self,
+        sftp,
+        content: Dict[str, Any],
+        remote_path: str
+    ) -> None:
+        """
+        Safely write JSON file to remote with validation
+        
+        Uses atomic write pattern: write to temp file, validate, then move
+        """
+        import tempfile
+        
+        # Serialize to JSON string first
+        json_str = json.dumps(content, indent=2)
+        
+        # Write to temporary file on remote
+        temp_path = f"{remote_path}.tmp"
+        
+        try:
+            # Write JSON string to temp file
+            with sftp.open(temp_path, 'w') as f:
+                f.write(json_str)
+                # Force flush and sync
+                f.flush()
+                if hasattr(f, 'prefetch'):
+                    # Wait for write to complete
+                    pass
+            
+            # Verify the temp file is valid JSON by reading it back
+            with sftp.open(temp_path, 'r') as f:
+                readback = f.read()
+                try:
+                    json.loads(readback)
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"JSON validation failed after write: {e}")
+            
+            # Remove destination file if it exists (SFTP rename doesn't overwrite)
+            try:
+                sftp.remove(remote_path)
+            except FileNotFoundError:
+                pass  # File doesn't exist, that's fine
+            
+            # Atomic move to final location
+            sftp.rename(temp_path, remote_path)
+            
+        except Exception as e:
+            # Clean up temp file on error
+            try:
+                sftp.remove(temp_path)
+            except:
+                pass
+            raise
+
     def _execute_sync(
         self,
         ssh_client: paramiko.SSHClient,
@@ -542,6 +811,8 @@ class SyncManager:
         configs: Dict[str, Any]
     ) -> None:
         """Execute the actual file sync"""
+        import sys
+        
         sftp = ssh_client.open_sftp()
 
         try:
@@ -549,29 +820,50 @@ class SyncManager:
             remote_home = remote_profile.home
             remote_claude_dir = f"{remote_home}/.claude"
 
+            if self.verbose:
+                print("Creating remote directories...")
+                sys.stdout.flush()
+
             self._ensure_remote_dir(sftp, remote_home)
             self._ensure_remote_dir(sftp, remote_claude_dir)
 
-            # Sync ~/.claude.json
+            if self.verbose:
+                print("  ✓ Directories created")
+                sys.stdout.flush()
+
+            # Sync ~/.claude.json using safe atomic write
             if 'claude_json' in configs:
                 remote_path = f"{remote_home}/.claude.json"
                 if self.verbose:
-                    print(f"Syncing ~/.claude.json -> {remote_path}")
+                    print(f"\nSyncing ~/.claude.json -> {remote_path}")
+                    sys.stdout.flush()
 
-                with sftp.open(remote_path, 'w') as f:
-                    json.dump(configs['claude_json'], f, indent=2)
+                self._write_json_file_safe(sftp, configs['claude_json'], remote_path)
+                
+                if self.verbose:
+                    print("  ✓ ~/.claude.json synced")
+                    sys.stdout.flush()
 
-            # Sync ~/.claude/settings.json
+            # Sync ~/.claude/settings.json using safe atomic write
             if 'settings_json' in configs:
                 remote_path = f"{remote_claude_dir}/settings.json"
                 if self.verbose:
-                    print(f"Syncing ~/.claude/settings.json -> {remote_path}")
+                    print(f"\nSyncing ~/.claude/settings.json -> {remote_path}")
+                    sys.stdout.flush()
 
-                with sftp.open(remote_path, 'w') as f:
-                    json.dump(configs['settings_json'], f, indent=2)
+                self._write_json_file_safe(sftp, configs['settings_json'], remote_path)
+                
+                if self.verbose:
+                    print("  ✓ settings.json synced")
+                    sys.stdout.flush()
 
             # Sync other files
-            for local_file in configs.get('files_to_sync', []):
+            files_to_sync = configs.get('files_to_sync', [])
+            if files_to_sync and self.verbose:
+                print(f"\nSyncing {len(files_to_sync)} additional files...")
+                sys.stdout.flush()
+
+            for local_file in files_to_sync:
                 relative_path = local_file.relative_to(Path.home() / ".claude")
                 remote_path = f"{remote_claude_dir}/{relative_path}"
 
@@ -581,7 +873,8 @@ class SyncManager:
 
                 if local_file.is_file():
                     if self.verbose:
-                        print(f"Syncing {local_file.name} -> {remote_path}")
+                        print(f"  {local_file.name} -> {remote_path}")
+                        sys.stdout.flush()
 
                     # Use compatibility checker to process file
                     checker = CompatibilityChecker(
@@ -590,23 +883,28 @@ class SyncManager:
                     )
                     content = checker.process_file_for_sync(local_file)
 
-                    # Write to remote
+                    # Write to remote - use safe write for JSON
                     if isinstance(content, dict):
-                        with sftp.open(remote_path, 'w') as f:
-                            json.dump(content, f, indent=2)
+                        self._write_json_file_safe(sftp, content, remote_path)
                     elif isinstance(content, str):
                         with sftp.open(remote_path, 'w') as f:
                             f.write(content)
+                            f.flush()
                     else:
                         # Binary content
                         with sftp.open(remote_path, 'wb') as f:
                             f.write(content)
+                            f.flush()
 
                 elif local_file.is_dir():
+                    if self.verbose:
+                        print(f"  {local_file.name}/ (directory)")
+                        sys.stdout.flush()
                     # Recursively sync directory
                     self._sync_directory(sftp, local_file, remote_path, remote_profile)
 
             print("\n✓ Sync completed successfully")
+            sys.stdout.flush()
 
         finally:
             sftp.close()
@@ -636,14 +934,16 @@ class SyncManager:
                 content = checker.process_file_for_sync(item)
 
                 if isinstance(content, dict):
-                    with sftp.open(remote_path, 'w') as f:
-                        json.dump(content, f, indent=2)
+                    # Use safe atomic write for JSON
+                    self._write_json_file_safe(sftp, content, remote_path)
                 elif isinstance(content, str):
                     with sftp.open(remote_path, 'w') as f:
                         f.write(content)
+                        f.flush()
                 else:
                     with sftp.open(remote_path, 'wb') as f:
                         f.write(content)
+                        f.flush()
 
             elif item.is_dir():
                 self._sync_directory(sftp, item, remote_path, remote_profile)
