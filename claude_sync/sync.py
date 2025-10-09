@@ -182,25 +182,42 @@ class SyncManager:
         Returns:
             Version string (e.g., "2.0.5") or None if not found
         """
-        try:
-            result = subprocess.run(
-                ['claude-code', '--version'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                # Extract version from output (might be "claude-code 2.0.5" or just "2.0.5")
-                version = result.stdout.strip()
-                # Try to extract just the version number
-                parts = version.split()
-                for part in parts:
-                    if part[0].isdigit():
-                        return part
-                return version
-            return None
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
-            return None
+        import platform
+
+        # Try both 'claude' and 'claude-code' commands
+        commands_to_try = ['claude', 'claude-code']
+
+        # On Windows, also try explicit .exe paths in common locations
+        if platform.system() == 'Windows':
+            windows_paths = [
+                Path.home() / 'AppData' / 'Local' / 'Programs' / 'Claude' / 'claude.exe',
+                Path.home() / 'AppData' / 'Roaming' / 'npm' / 'claude.cmd',
+                Path.home() / 'AppData' / 'Roaming' / 'npm' / 'claude-code.cmd',
+            ]
+            commands_to_try.extend([str(p) for p in windows_paths if p.exists()])
+
+        for command in commands_to_try:
+            try:
+                result = subprocess.run(
+                    [command, '--version'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    # Extract version from output
+                    # Formats: "2.0.10 (Claude Code)", "claude-code 2.0.5", or just "2.0.5"
+                    version = result.stdout.strip()
+                    # Try to extract just the version number
+                    parts = version.split()
+                    for part in parts:
+                        if part and part[0].isdigit():
+                            return part
+                    return version
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                continue
+
+        return None
 
     def _check_remote_claude_installation(
         self,
@@ -212,22 +229,25 @@ class SyncManager:
         Returns:
             (is_installed, version)
         """
-        stdin, stdout, stderr = ssh_client.exec_command('claude-code --version 2>&1')
-        output = stdout.read().decode().strip()
-        error = stderr.read().decode().strip()
+        # Try both 'claude' and 'claude-code' commands
+        for command in ['claude', 'claude-code']:
+            stdin, stdout, stderr = ssh_client.exec_command(f'{command} --version 2>&1')
+            output = stdout.read().decode().strip()
+            error = stderr.read().decode().strip()
 
-        # Check for command not found (Unix) or not recognized (Windows)
-        not_found_indicators = ['command not found', 'not recognized', 'not found']
-        if any(indicator in output.lower() or indicator in error.lower() for indicator in not_found_indicators):
-            return False, None
+            # Check for command not found (Unix) or not recognized (Windows)
+            not_found_indicators = ['command not found', 'not recognized', 'not found']
+            if any(indicator in output.lower() or indicator in error.lower() for indicator in not_found_indicators):
+                continue  # Try next command
 
-        if output:
-            # Extract version from output
-            parts = output.split()
-            for part in parts:
-                if part[0].isdigit():
-                    return True, part
-            return True, output
+            if output:
+                # Extract version from output
+                # Formats: "2.0.10 (Claude Code)", "claude-code 2.0.5", or just "2.0.5"
+                parts = output.split()
+                for part in parts:
+                    if part and part[0].isdigit():
+                        return True, part
+                return True, output
 
         return False, None
 
@@ -313,6 +333,10 @@ class SyncManager:
         import getpass
 
         client = paramiko.SSHClient()
+
+        # Warn about auto-accepting host keys
+        print(f"Connecting to {host}:{port}...")
+        print(f"Note: Host key will be automatically accepted if unknown")
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         connect_kwargs = {
@@ -322,13 +346,8 @@ class SyncManager:
             'timeout': 10
         }
 
-        # Add key file if specified
-        if key_file:
-            key_path = Path(key_file).expanduser()
-            if not key_path.exists():
-                raise FileNotFoundError(f"SSH key not found: {key_file}")
-
-            # Try to load the key first to check if it's encrypted
+        def load_encrypted_key(key_path: Path) -> Optional[paramiko.PKey]:
+            """Try to load an encrypted key with passphrase prompt"""
             passphrase = None
             key_obj = None
 
@@ -337,14 +356,14 @@ class SyncManager:
                 try:
                     # Try loading without passphrase first
                     key_obj = key_class.from_private_key_file(str(key_path))
-                    break
+                    return key_obj
                 except paramiko.PasswordRequiredException:
                     # Key is encrypted, prompt for password
                     if passphrase is None:
-                        passphrase = getpass.getpass(f"Enter passphrase for {key_file}: ")
+                        passphrase = getpass.getpass(f"Enter passphrase for {key_path}: ")
                     try:
                         key_obj = key_class.from_private_key_file(str(key_path), password=passphrase)
-                        break
+                        return key_obj
                     except paramiko.SSHException:
                         # Wrong passphrase or not this key type, try next type
                         continue
@@ -352,15 +371,55 @@ class SyncManager:
                     # Not this key type, try next
                     continue
 
+            return None
+
+        # Add key file if specified
+        if key_file:
+            key_path = Path(key_file).expanduser()
+            if not key_path.exists():
+                raise FileNotFoundError(f"SSH key not found: {key_file}")
+
+            key_obj = load_encrypted_key(key_path)
             if key_obj:
                 connect_kwargs['pkey'] = key_obj
             else:
                 # Fallback to key_filename (paramiko will handle it)
                 connect_kwargs['key_filename'] = str(key_path)
 
-        # Try to connect using specified key or SSH agent/default keys
+        # Try to connect
         try:
             client.connect(**connect_kwargs)
+        except paramiko.SSHException as e:
+            # Check if error is due to encrypted private key in default locations
+            if 'private key file is encrypted' in str(e).lower():
+                # Try default key locations
+                default_keys = [
+                    Path.home() / '.ssh' / 'id_rsa',
+                    Path.home() / '.ssh' / 'id_ed25519',
+                    Path.home() / '.ssh' / 'id_ecdsa',
+                    Path.home() / '.ssh' / 'id_dsa',
+                ]
+
+                loaded_key = None
+                for default_key in default_keys:
+                    if default_key.exists():
+                        if self.verbose:
+                            print(f"Trying key: {default_key}")
+                        loaded_key = load_encrypted_key(default_key)
+                        if loaded_key:
+                            # Retry connection with loaded key
+                            try:
+                                connect_kwargs['pkey'] = loaded_key
+                                client.connect(**connect_kwargs)
+                                return client
+                            except paramiko.AuthenticationException:
+                                # This key didn't work, try next
+                                continue
+
+                # If we get here, no encrypted key worked
+                raise ConnectionError(f"Failed to authenticate with encrypted keys for {username}@{host}:{port}")
+
+            raise ConnectionError(f"Failed to connect to {username}@{host}:{port}: {e}")
         except paramiko.AuthenticationException as e:
             # If we have a key file but authentication failed, might be wrong passphrase
             if key_file and 'passphrase' in str(e).lower():
