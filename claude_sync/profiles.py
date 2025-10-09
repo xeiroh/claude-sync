@@ -127,6 +127,26 @@ class ProfileManager:
             "default_user": "{{ username }}",
             "persistent_storage": "/home/{{ username }}",
             "platform": "linux"
+        },
+        "local-windows": {
+            "name": "Local Windows",
+            "home": "C:/Users/{{ username }}",
+            "workspace": "C:/Users/{{ username }}/Projects",
+            "npm_global": "C:/Users/{{ username }}/AppData/Roaming/npm",
+            "install_method": "native",
+            "default_user": "{{ username }}",
+            "persistent_storage": "C:/Users/{{ username }}",
+            "platform": "windows"
+        },
+        "generic-windows": {
+            "name": "Generic Windows Server",
+            "home": "C:/Users/{{ username }}",
+            "workspace": "C:/Users/{{ username }}/workspace",
+            "npm_global": "C:/Users/{{ username }}/AppData/Roaming/npm",
+            "install_method": "native",
+            "default_user": "{{ username }}",
+            "persistent_storage": "C:/Users/{{ username }}",
+            "platform": "windows"
         }
     }
 
@@ -175,8 +195,10 @@ class ProfileManager:
             return "local-mac"
         elif system == "Linux":
             return "local-linux"
+        elif system == "Windows":
+            return "local-windows"
         else:
-            # Windows or other
+            # Unknown system
             return "generic-ubuntu"  # fallback
 
     def detect_remote_profile(self, ssh_client) -> str:
@@ -186,6 +208,9 @@ class ProfileManager:
         """
         # Platform-specific checks
         detection_checks = {
+            'generic-windows': [
+                'ver >nul 2>&1 && echo Windows'
+            ],
             'vast-root': [
                 'test -f /root/onstart.sh && test -d /workspace'
             ],

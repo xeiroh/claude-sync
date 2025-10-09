@@ -62,7 +62,7 @@ class TestProfileManager:
         with open(profile_manager.profiles_file) as f:
             data = json.load(f)
             assert "profiles" in data
-            assert len(data["profiles"]) == 10
+            assert len(data["profiles"]) == 12  # 10 original + 2 Windows profiles
 
     def test_load_profiles(self, profile_manager):
         """Test loading profiles from file"""
@@ -70,9 +70,11 @@ class TestProfileManager:
         profiles = profile_manager.load_profiles()
 
         assert isinstance(profiles, dict)
-        assert len(profiles) == 10
+        assert len(profiles) == 12  # 10 original + 2 Windows profiles
         assert "vast-root" in profiles
         assert "local-mac" in profiles
+        assert "local-windows" in profiles
+        assert "generic-windows" in profiles
 
     def test_get_profile_returns_server_profile(self, profile_manager):
         """Test get_profile returns ServerProfile object"""
@@ -209,3 +211,25 @@ class TestProfileManager:
         assert profile.persistent_storage == "/lambda/nfs"
         assert profile.default_user == "ubuntu"
         assert profile.install_method == "npm"
+
+    def test_windows_profile_configuration(self, profile_manager):
+        """Test Windows profile has correct configuration"""
+        profile_manager.initialize_config()
+        profile = profile_manager.get_profile("local-windows")
+
+        assert profile.home == "C:/Users/{{ username }}"
+        assert profile.workspace == "C:/Users/{{ username }}/Projects"
+        assert profile.persistent_storage == "C:/Users/{{ username }}"
+        assert profile.default_user == "{{ username }}"
+        assert profile.install_method == "native"
+        assert profile.platform == "windows"
+
+    def test_detect_local_profile_windows(self, profile_manager, monkeypatch):
+        """Test Windows detection for local profile"""
+        # Mock platform.system() to return Windows
+        import platform
+        monkeypatch.setattr(platform, "system", lambda: "Windows")
+
+        detected = profile_manager.detect_local_profile()
+
+        assert detected == "local-windows"

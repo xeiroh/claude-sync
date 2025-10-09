@@ -100,7 +100,8 @@ class SyncManager:
                 success = self._install_claude_code_remote(
                     ssh_client,
                     install_method,
-                    local_version
+                    local_version,
+                    remote_profile_obj.platform
                 )
 
                 if not success:
@@ -215,7 +216,9 @@ class SyncManager:
         output = stdout.read().decode().strip()
         error = stderr.read().decode().strip()
 
-        if 'command not found' in output or 'command not found' in error:
+        # Check for command not found (Unix) or not recognized (Windows)
+        not_found_indicators = ['command not found', 'not recognized', 'not found']
+        if any(indicator in output.lower() or indicator in error.lower() for indicator in not_found_indicators):
             return False, None
 
         if output:
@@ -232,7 +235,8 @@ class SyncManager:
         self,
         ssh_client: paramiko.SSHClient,
         install_method: str,
-        version: str
+        version: str,
+        platform: str = "linux"
     ) -> bool:
         """
         Install Claude Code on remote server
@@ -241,6 +245,7 @@ class SyncManager:
             ssh_client: SSH connection to remote
             install_method: "npm", "npm-global", or "native"
             version: Version to install (e.g., "2.0.5")
+            platform: Remote platform ("linux", "macos", "windows", etc.)
 
         Returns:
             True if installation succeeded, False otherwise
@@ -249,12 +254,19 @@ class SyncManager:
             print(f"\nInstalling Claude Code on remote server...")
             print(f"  Method: {install_method}")
             print(f"  Version: {version}")
+            print(f"  Platform: {platform}")
 
-        # Determine installation command
+        # Determine installation command based on method and platform
         if install_method in ['npm', 'npm-global']:
             cmd = f'npm install -g @anthropic-ai/claude-code@{version}'
         elif install_method == 'native':
-            cmd = f'curl -fsSL https://claude.ai/install.sh | bash -s {version}'
+            # Platform-specific native installation
+            if platform == 'windows':
+                # PowerShell installation (preferred for Windows)
+                cmd = f'powershell -Command "& ([scriptblock]::Create((irm https://claude.ai/install.ps1))) {version}"'
+            else:
+                # Unix-like systems (Linux, macOS)
+                cmd = f'curl -fsSL https://claude.ai/install.sh | bash -s {version}'
         else:
             print(f"ERROR: Unknown install method: {install_method}")
             return False
