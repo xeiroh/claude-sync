@@ -213,6 +213,32 @@ class TestCompatibilityChecker:
         assert "/home/ubuntu/workspace" in result
         assert "/Users/testuser" not in result
 
+    def test_process_file_for_sync_json_with_comments(self, checker, tmp_path, capsys):
+        """Test processing JSON file with comments (like tsconfig.json)"""
+        json_file = tmp_path / "tsconfig.json"
+        # JSON with comments (valid in JSONC/JSON5 but not standard JSON)
+        content = """{
+  // This is a comment
+  "compilerOptions": {
+    "baseUrl": "/Users/testuser/project"
+  }
+}"""
+        
+        with open(json_file, "w") as f:
+            f.write(content)
+        
+        # Should fall back to text processing
+        result = checker.process_file_for_sync(json_file)
+        
+        # Result should be a string (text fallback)
+        assert isinstance(result, str)
+        # Path should still be replaced
+        assert "/home/ubuntu/project" in result
+        # Warning message should be printed
+        captured = capsys.readouterr()
+        assert "Warning" in captured.out
+        assert "tsconfig.json" in captured.out
+
     def test_sanitize_settings_json_templates_paths(self, checker, tmp_path):
         """Test that settings.json paths are templated"""
         settings_json = tmp_path / "settings.json"

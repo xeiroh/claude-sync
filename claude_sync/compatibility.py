@@ -147,9 +147,17 @@ class CompatibilityChecker:
         """
         # JSON files need templating
         if file_path.suffix == '.json':
-            with open(file_path, 'r') as f:
-                data = json.load(f)
-            return self.templater.template_config(data)
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                return self.templater.template_config(data)
+            except json.JSONDecodeError as e:
+                # Some JSON files contain comments (e.g., tsconfig.json) which aren't valid JSON
+                # Fall back to reading as text and applying path replacement
+                print(f"  Warning: {file_path.name} contains invalid JSON (likely comments), syncing as text")
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                return self.templater._replace_paths(content)
 
         # Markdown files might have paths in code blocks
         elif file_path.suffix == '.md':
