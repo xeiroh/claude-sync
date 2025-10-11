@@ -22,6 +22,10 @@ Install via pip:
 
 ```bash
 pip install claude-remote
+
+or
+
+git clone https://github.com/xeiroh/claude-sync && cd claude-sync && pip install -e .
 ```
 
 Initialize configuration directory:
