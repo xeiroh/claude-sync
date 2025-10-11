@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "claude-sync"
+name = "claude-remote"
 version = "0.1.0"
 description = "Sync local Claude Code environments to remote machines"
 readme = "README.md"

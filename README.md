@@ -1,10 +1,10 @@
-# claude-sync
+# claude-remote
 
 Sync your local Claude Code environment to remote machines via SSH.
 
 ## Overview
 
-claude-sync automatically synchronizes your Claude Code configuration, agents, commands, and MCP servers to remote machines. It handles path translation across different platforms, validates compatibility, and can automatically install Claude Code on remote servers if not already present.
+claude-remote automatically synchronizes your Claude Code configuration, agents, commands, and MCP servers to remote machines. It handles path translation across different platforms, validates compatibility, and can automatically install Claude Code on remote servers if not already present.
 
 ## Features
 
@@ -21,13 +21,13 @@ claude-sync automatically synchronizes your Claude Code configuration, agents, c
 Install via pip:
 
 ```bash
-pip install -e .
+pip install claude-remote
 ```
 
 Initialize configuration directory:
 
 ```bash
-claude-sync --init
+claude-remote --init
 ```
 
 This creates `~/.claude-sync/` with default profiles for major cloud platforms.
@@ -37,20 +37,20 @@ This creates `~/.claude-sync/` with default profiles for major cloud platforms.
 Sync to a remote server:
 
 ```bash
-claude-sync --ssh user@hostname
+claude-remote --ssh user@hostname
 ```
 
 Preview what would be synced:
 
 ```bash
-claude-sync --ssh user@hostname --dry-run
+claude-remote --ssh user@hostname --dry-run
 ```
 
 Save server for future use:
 
 ```bash
-claude-sync --ssh user@hostname --save-server myserver
-claude-sync --server myserver
+claude-remote --ssh user@hostname --save-server myserver
+claude-remote --server myserver
 ```
 
 ## Usage
@@ -59,16 +59,16 @@ claude-sync --server myserver
 
 ```bash
 # Auto-detect remote platform
-claude-sync --ssh user@host
+claude-remote --ssh user@host
 
 # With custom port
-claude-sync --ssh user@host:2222
+claude-remote --ssh user@host:2222
 
 # Specify remote profile explicitly
-claude-sync --ssh user@host --profile generic-ubuntu
+claude-remote --ssh user@host --profile generic-ubuntu
 
 # Verbose output
-claude-sync --ssh user@host --verbose
+claude-remote --ssh user@host --verbose
 ```
 
 ### SSH Authentication
@@ -77,25 +77,25 @@ Specify custom SSH keys or use complete SSH commands:
 
 ```bash
 # Use specific SSH key (long form)
-claude-sync --ssh user@host --key ~/.ssh/my-custom-key
+claude-remote --ssh user@host --key ~/.ssh/my-custom-key
 
 # Use specific SSH key (short form, like SSH -i)
-claude-sync --ssh user@host -i ~/.ssh/my-custom-key
+claude-remote --ssh user@host -i ~/.ssh/my-custom-key
 
 # Pass complete SSH command
-claude-sync --ssh-command "ssh user@host"
+claude-remote --ssh-command "ssh user@host"
 
 # SSH command with key file
-claude-sync --ssh-command "ssh -i ~/.ssh/my-key user@host"
+claude-remote --ssh-command "ssh -i ~/.ssh/my-key user@host"
 
 # SSH command with port
-claude-sync --ssh-command "ssh -p 2222 user@host"
+claude-remote --ssh-command "ssh -p 2222 user@host"
 
 # Complex SSH command
-claude-sync --ssh-command "ssh -i ~/.ssh/my-key -p 3000 user@example.com"
+claude-remote --ssh-command "ssh -i ~/.ssh/my-key -p 3000 user@example.com"
 
 # --key flag takes precedence over key in --ssh-command
-claude-sync --ssh-command "ssh -i ~/.ssh/other user@host" --key ~/.ssh/priority
+claude-remote --ssh-command "ssh -i ~/.ssh/other user@host" --key ~/.ssh/priority
 ```
 
 **Encrypted SSH Keys**:
@@ -106,7 +106,7 @@ claude-sync --ssh-command "ssh -i ~/.ssh/other user@host" --key ~/.ssh/priority
 
 ```bash
 # Using encrypted key - will prompt for passphrase
-claude-sync --ssh user@host -i ~/.ssh/encrypted_key
+claude-remote --ssh user@host -i ~/.ssh/encrypted_key
 # Enter passphrase for ~/.ssh/encrypted_key: [prompted securely]
 ```
 
@@ -120,33 +120,33 @@ claude-sync --ssh user@host -i ~/.ssh/encrypted_key
 Preview sync operations without making changes:
 
 ```bash
-claude-sync --ssh user@host --dry-run
+claude-remote --ssh user@host --dry-run
 ```
 
 ### Server Management
 
 ```bash
 # Save server configuration
-claude-sync --ssh user@host --profile aws-ubuntu --save-server aws-prod
+claude-remote --ssh user@host --profile aws-ubuntu --save-server aws-prod
 
 # Save with custom SSH key
-claude-sync --ssh user@host -i ~/.ssh/my-key --save-server my-server
+claude-remote --ssh user@host -i ~/.ssh/my-key --save-server my-server
 
 # Use saved server (automatically uses saved key)
-claude-sync --server aws-prod
+claude-remote --server aws-prod
 
 # Dry-run with saved server
-claude-sync --server aws-prod --dry-run
+claude-remote --server aws-prod --dry-run
 ```
 
 ### Profile Management
 
 ```bash
 # List all available profiles
-claude-sync --list-profiles
+claude-remote --list-profiles
 
 # Specify local profile (auto-detected by default)
-claude-sync --ssh user@host --local-profile local-mac
+claude-remote --ssh user@host --local-profile local-mac
 ```
 
 ## Supported Platforms
@@ -283,16 +283,16 @@ claude-sync automatically translates local paths to remote equivalents:
 ssh user@host
 
 # Try with specific SSH key
-claude-sync --ssh user@host -i ~/.ssh/my-key
+claude-remote --ssh user@host -i ~/.ssh/my-key
 
 # Try with explicit port
-claude-sync --ssh user@host:2222
+claude-remote --ssh user@host:2222
 
 # Use complete SSH command (useful for testing)
-claude-sync --ssh-command "ssh -i ~/.ssh/key -p 2222 user@host"
+claude-remote --ssh-command "ssh -i ~/.ssh/key -p 2222 user@host"
 
 # Enable verbose output
-claude-sync --ssh user@host --verbose
+claude-remote --ssh user@host --verbose
 ```
 
 **Common SSH Authentication Issues**:
@@ -306,10 +306,10 @@ claude-sync --ssh user@host --verbose
 
 ```bash
 # List available profiles
-claude-sync --list-profiles
+claude-remote --list-profiles
 
 # Specify profile explicitly
-claude-sync --ssh user@host --profile generic-ubuntu
+claude-remote --ssh user@host --profile generic-ubuntu
 ```
 
 ### Installation Failures
@@ -319,7 +319,7 @@ If Claude Code installation fails on remote:
 1. Check remote has npm or curl installed
 2. Verify network connectivity on remote
 3. Check disk space on remote
-4. Try manual installation, then sync
+4. Try manual installation, then sync with claude-remote
 
 ### Compatibility Warnings
 
