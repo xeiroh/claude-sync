@@ -1,10 +1,10 @@
-# claude-remote
+# claude-sync
 
 Sync your local Claude Code environment to remote machines via SSH.
 
 ## Overview
 
-claude-remote automatically synchronizes your Claude Code configuration, agents, commands, and MCP servers to remote machines. It handles path translation across different platforms, validates compatibility, and can automatically install Claude Code on remote servers if not already present.
+claude-sync automatically synchronizes your Claude Code configuration, agents, commands, and MCP servers to remote machines. It handles path translation across different platforms, validates compatibility, and can automatically install Claude Code on remote servers if not already present.
 
 ## Features
 
@@ -23,6 +23,13 @@ Install via pip:
 ```bash
 pip install claude-remote
 ```
+**Note:** Package name is claude-remote, the command-line utility is still claude-sync
+
+or
+
+```bash
+git clone https://github.com/xeiroh/claude-sync && cd claude-sync && pip install -e .
+```
 
 Initialize configuration directory:
 
@@ -31,8 +38,6 @@ claude-sync --init
 ```
 
 This creates `~/.claude-sync/` with default profiles for major cloud platforms.
-
-**Note**: The package name is `claude-remote` on PyPI, but the command-line utility is `claude-sync`.
 
 ## Quick Start
 
