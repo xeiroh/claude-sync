@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-remote"
-version = "0.1.0"
+version = "0.1.1"
 description = "Sync local Claude Code environments to remote machines"
 readme = "README.md"
 requires-python = ">=3.10"
