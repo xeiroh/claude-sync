@@ -21,10 +21,13 @@ claude-sync automatically synchronizes your Claude Code configuration, agents, c
 Install via pip:
 
 ```bash
-pip install claude-remote    # Package name is claude-remote, the utility is still claude-sync
+pip install claude-remote
+```
+**Note:** Package name is claude-remote, the command-line utility is still claude-sync
 
 or
 
+```bash
 git clone https://github.com/xeiroh/claude-sync && cd claude-sync && pip install -e .
 ```
 
