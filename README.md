@@ -1,10 +1,10 @@
-# claude-remote
+# claude-sync
 
 Sync your local Claude Code environment to remote machines via SSH.
 
 ## Overview
 
-claude-remote automatically synchronizes your Claude Code configuration, agents, commands, and MCP servers to remote machines. It handles path translation across different platforms, validates compatibility, and can automatically install Claude Code on remote servers if not already present.
+claude-sync automatically synchronizes your Claude Code configuration, agents, commands, and MCP servers to remote machines. It handles path translation across different platforms, validates compatibility, and can automatically install Claude Code on remote servers if not already present.
 
 ## Features
 
