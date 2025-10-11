@@ -27,30 +27,32 @@ pip install claude-remote
 Initialize configuration directory:
 
 ```bash
-claude-remote --init
+claude-sync --init
 ```
 
 This creates `~/.claude-sync/` with default profiles for major cloud platforms.
+
+**Note**: The package name is `claude-remote` on PyPI, but the command-line utility is `claude-sync`.
 
 ## Quick Start
 
 Sync to a remote server:
 
 ```bash
-claude-remote --ssh user@hostname
+claude-sync --ssh user@hostname
 ```
 
 Preview what would be synced:
 
 ```bash
-claude-remote --ssh user@hostname --dry-run
+claude-sync --ssh user@hostname --dry-run
 ```
 
 Save server for future use:
 
 ```bash
-claude-remote --ssh user@hostname --save-server myserver
-claude-remote --server myserver
+claude-sync --ssh user@hostname --save-server myserver
+claude-sync --server myserver
 ```
 
 ## Usage
@@ -59,16 +61,16 @@ claude-remote --server myserver
 
 ```bash
 # Auto-detect remote platform
-claude-remote --ssh user@host
+claude-sync --ssh user@host
 
 # With custom port
-claude-remote --ssh user@host:2222
+claude-sync --ssh user@host:2222
 
 # Specify remote profile explicitly
-claude-remote --ssh user@host --profile generic-ubuntu
+claude-sync --ssh user@host --profile generic-ubuntu
 
 # Verbose output
-claude-remote --ssh user@host --verbose
+claude-sync --ssh user@host --verbose
 ```
 
 ### SSH Authentication
@@ -77,25 +79,25 @@ Specify custom SSH keys or use complete SSH commands:
 
 ```bash
 # Use specific SSH key (long form)
-claude-remote --ssh user@host --key ~/.ssh/my-custom-key
+claude-sync --ssh user@host --key ~/.ssh/my-custom-key
 
 # Use specific SSH key (short form, like SSH -i)
-claude-remote --ssh user@host -i ~/.ssh/my-custom-key
+claude-sync --ssh user@host -i ~/.ssh/my-custom-key
 
 # Pass complete SSH command
-claude-remote --ssh-command "ssh user@host"
+claude-sync --ssh-command "ssh user@host"
 
 # SSH command with key file
-claude-remote --ssh-command "ssh -i ~/.ssh/my-key user@host"
+claude-sync --ssh-command "ssh -i ~/.ssh/my-key user@host"
 
 # SSH command with port
-claude-remote --ssh-command "ssh -p 2222 user@host"
+claude-sync --ssh-command "ssh -p 2222 user@host"
 
 # Complex SSH command
-claude-remote --ssh-command "ssh -i ~/.ssh/my-key -p 3000 user@example.com"
+claude-sync --ssh-command "ssh -i ~/.ssh/my-key -p 3000 user@example.com"
 
 # --key flag takes precedence over key in --ssh-command
-claude-remote --ssh-command "ssh -i ~/.ssh/other user@host" --key ~/.ssh/priority
+claude-sync --ssh-command "ssh -i ~/.ssh/other user@host" --key ~/.ssh/priority
 ```
 
 **Encrypted SSH Keys**:
@@ -106,7 +108,7 @@ claude-remote --ssh-command "ssh -i ~/.ssh/other user@host" --key ~/.ssh/priorit
 
 ```bash
 # Using encrypted key - will prompt for passphrase
-claude-remote --ssh user@host -i ~/.ssh/encrypted_key
+claude-sync --ssh user@host -i ~/.ssh/encrypted_key
 # Enter passphrase for ~/.ssh/encrypted_key: [prompted securely]
 ```
 
@@ -120,33 +122,33 @@ claude-remote --ssh user@host -i ~/.ssh/encrypted_key
 Preview sync operations without making changes:
 
 ```bash
-claude-remote --ssh user@host --dry-run
+claude-sync --ssh user@host --dry-run
 ```
 
 ### Server Management
 
 ```bash
 # Save server configuration
-claude-remote --ssh user@host --profile aws-ubuntu --save-server aws-prod
+claude-sync --ssh user@host --profile aws-ubuntu --save-server aws-prod
 
 # Save with custom SSH key
-claude-remote --ssh user@host -i ~/.ssh/my-key --save-server my-server
+claude-sync --ssh user@host -i ~/.ssh/my-key --save-server my-server
 
 # Use saved server (automatically uses saved key)
-claude-remote --server aws-prod
+claude-sync --server aws-prod
 
 # Dry-run with saved server
-claude-remote --server aws-prod --dry-run
+claude-sync --server aws-prod --dry-run
 ```
 
 ### Profile Management
 
 ```bash
 # List all available profiles
-claude-remote --list-profiles
+claude-sync --list-profiles
 
 # Specify local profile (auto-detected by default)
-claude-remote --ssh user@host --local-profile local-mac
+claude-sync --ssh user@host --local-profile local-mac
 ```
 
 ## Supported Platforms
@@ -283,16 +285,16 @@ claude-sync automatically translates local paths to remote equivalents:
 ssh user@host
 
 # Try with specific SSH key
-claude-remote --ssh user@host -i ~/.ssh/my-key
+claude-sync --ssh user@host -i ~/.ssh/my-key
 
 # Try with explicit port
-claude-remote --ssh user@host:2222
+claude-sync --ssh user@host:2222
 
 # Use complete SSH command (useful for testing)
-claude-remote --ssh-command "ssh -i ~/.ssh/key -p 2222 user@host"
+claude-sync --ssh-command "ssh -i ~/.ssh/key -p 2222 user@host"
 
 # Enable verbose output
-claude-remote --ssh user@host --verbose
+claude-sync --ssh user@host --verbose
 ```
 
 **Common SSH Authentication Issues**:
@@ -306,10 +308,10 @@ claude-remote --ssh user@host --verbose
 
 ```bash
 # List available profiles
-claude-remote --list-profiles
+claude-sync --list-profiles
 
 # Specify profile explicitly
-claude-remote --ssh user@host --profile generic-ubuntu
+claude-sync --ssh user@host --profile generic-ubuntu
 ```
 
 ### Installation Failures
@@ -319,7 +321,7 @@ If Claude Code installation fails on remote:
 1. Check remote has npm or curl installed
 2. Verify network connectivity on remote
 3. Check disk space on remote
-4. Try manual installation, then sync with claude-remote
+4. Try manual installation, then sync with claude-sync
 
 ### Compatibility Warnings
 
