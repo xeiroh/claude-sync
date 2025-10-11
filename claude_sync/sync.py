@@ -289,31 +289,85 @@ class SyncManager:
     ) -> Tuple[bool, Optional[str]]:
         """
         Check if Claude Code is installed on remote
+        
+        This method tries multiple strategies to detect Claude Code:
+        1. Direct paths to common installation locations
+        2. Using bash -lc to source login files
+        3. Sourcing shell RC files explicitly
 
         Returns:
             (is_installed, version)
         """
-        # Try both 'claude' and 'claude-code' commands
-        for command in ['claude', 'claude-code']:
-            stdin, stdout, stderr = ssh_client.exec_command(f'{command} --version 2>&1')
+        # Strategy 1: Try common installation paths directly
+        common_paths = [
+            '$HOME/.local/bin/claude',  # Native install location
+            '$HOME/.npm-global/bin/claude',  # npm-global install
+            '/usr/local/bin/claude',  # System-wide install
+            '$HOME/.npm-global/bin/claude-code',
+            '/usr/local/bin/claude-code'
+        ]
+        
+        for path in common_paths:
+            stdin, stdout, stderr = ssh_client.exec_command(f'{path} --version 2>&1')
             output = stdout.read().decode(errors='ignore').strip()
             error = stderr.read().decode(errors='ignore').strip()
-
+            
+            combined_output = output or error
+            
+            # Check for command not found or no such file
+            not_found_indicators = ['command not found', 'no such file', 'not found']
+            if not any(indicator in combined_output.lower() for indicator in not_found_indicators):
+                if combined_output:
+                    # Extract version from output
+                    version = self._extract_version_from_text(combined_output)
+                    if version:
+                        return True, version
+                    return True, combined_output
+        
+        # Strategy 2: Try using bash -lc (login shell that sources RC files)
+        for command in ['claude', 'claude-code']:
+            stdin, stdout, stderr = ssh_client.exec_command(f'bash -lc "{command} --version" 2>&1')
+            output = stdout.read().decode(errors='ignore').strip()
+            error = stderr.read().decode(errors='ignore').strip()
+            
             combined_output = output or error
             combined_for_check = f"{output} {error}".strip()
-
-            # Check for command not found (Unix) or not recognized (Windows)
+            
+            # Check for command not found
             not_found_indicators = ['command not found', 'not recognized', 'not found']
             if any(indicator in combined_for_check.lower() for indicator in not_found_indicators):
                 continue  # Try next command
-
+            
             if combined_output:
-                # Extract version from output (stdout may be empty if CLI prints to stderr)
+                # Extract version from output
                 version = self._extract_version_from_text(combined_output)
                 if version:
                     return True, version
                 return True, combined_output
-
+        
+        # Strategy 3: Try sourcing shell RC files explicitly
+        rc_files = ['.bashrc', '.zshrc', '.profile']
+        for rc_file in rc_files:
+            for command in ['claude', 'claude-code']:
+                cmd = f'[ -f $HOME/{rc_file} ] && source $HOME/{rc_file}; {command} --version 2>&1'
+                stdin, stdout, stderr = ssh_client.exec_command(cmd)
+                output = stdout.read().decode(errors='ignore').strip()
+                error = stderr.read().decode(errors='ignore').strip()
+                
+                combined_output = output or error
+                
+                # Check for command not found
+                not_found_indicators = ['command not found', 'not recognized', 'not found']
+                if any(indicator in combined_output.lower() for indicator in not_found_indicators):
+                    continue  # Try next combination
+                
+                if combined_output:
+                    # Extract version from output
+                    version = self._extract_version_from_text(combined_output)
+                    if version:
+                        return True, version
+                    return True, combined_output
+        
         return False, None
 
     def _add_to_path_in_shell_rc(
