@@ -21,7 +21,7 @@ claude-sync automatically synchronizes your Claude Code configuration, agents, c
 Install via pip:
 
 ```bash
-pip install claude-remote
+pip install claude-remote    # Package name is claude-remote, the utility is still claude-sync
 
 or
 
@@ -35,8 +35,6 @@ claude-sync --init
 ```
 
 This creates `~/.claude-sync/` with default profiles for major cloud platforms.
-
-**Note**: The package name is `claude-remote` on PyPI, but the command-line utility is `claude-sync`.
 
 ## Quick Start
 
